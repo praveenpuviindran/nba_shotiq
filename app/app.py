@@ -215,7 +215,7 @@ def _render_shot_map_views(
         st.pyplot(hexbin_fn(shots), clear_figure=True, use_container_width=True)
         return
 
-    if view_style == "Partitioned Zones":
+    if view_style == "Court Zones":
         st.pyplot(partitioned_fn(shots), clear_figure=True, use_container_width=True)
         return
 
@@ -224,7 +224,7 @@ def _render_shot_map_views(
         st.caption("Hexbin")
         st.pyplot(hexbin_fn(shots), clear_figure=True, use_container_width=True)
     with right:
-        st.caption("Partitioned Zones")
+        st.caption("Court Zones")
         st.pyplot(partitioned_fn(shots), clear_figure=True, use_container_width=True)
 
 
@@ -412,7 +412,7 @@ g2.info("**Quality**: Expected make probability by location (model-based).")
 g3.info("**SMOE**: Actual minus expected shooting by location.")
 view_style = st.radio(
     "Shot Map Style",
-    options=["Hexbin", "Partitioned Zones", "Both"],
+    options=["Hexbin", "Court Zones", "Both"],
     horizontal=True,
 )
 
