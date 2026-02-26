@@ -140,6 +140,7 @@ def fetch_player_shots(
             player_id=int(player_id),
             context_measure_simple="FGA",
             season_nullable=season,
+            # nba_api arg maps to API request param `SeasonTypeAllStar`.
             season_type_all_star=season_type,
         )
         frames = endpoint.get_data_frames()
@@ -169,6 +170,7 @@ def fetch_players_with_games(
     def _request() -> pd.DataFrame:
         endpoint = LeagueGameLog(
             season=season,
+            # nba_api arg maps to API request param `SeasonTypeAllStar`.
             season_type_all_star=season_type,
             player_or_team_abbreviation="P",
         )
