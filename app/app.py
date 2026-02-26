@@ -13,8 +13,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
 from src.config import get_model_artifact_paths
-from src.data.db import initialize_database
-from src.data.ingest import ensure_player_shots_cached
+from src.data.db import initialize_database, read_season_shots
+from src.data.ingest import ensure_player_shots_cached, ensure_season_shots_cached
 from src.modeling.predict import add_p_make, load_metadata, model_artifacts_exist
 from src.modeling.train import train_model_for_season
 from src.nba.players import get_player_names, resolve_player_id
@@ -76,6 +76,61 @@ def _load_model_metadata(season: str, season_type: str) -> dict | None:
         return load_metadata(season=season, season_type=season_type)
     except Exception:
         return None
+
+
+@st.cache_data(ttl=30 * 60, show_spinner=False)
+def cached_season_player_metrics(
+    season: str,
+    season_type: str,
+    use_full_cache: bool,
+) -> pd.DataFrame:
+    if use_full_cache:
+        season_shots = ensure_season_shots_cached(
+            season=season,
+            season_type=season_type,
+            force_refresh=False,
+        )
+    else:
+        season_shots = read_season_shots(season=season, season_type=season_type)
+
+    if season_shots.empty:
+        return pd.DataFrame()
+
+    scored = add_p_make(season_shots, season=season, season_type=season_type)
+    scored["shot_made_flag"] = pd.to_numeric(scored["shot_made_flag"], errors="coerce").fillna(0).astype(int)
+    scored["p_make"] = pd.to_numeric(scored["p_make"], errors="coerce")
+    scored["made_minus_expected"] = scored["shot_made_flag"] - scored["p_make"]
+
+    metrics = (
+        scored.groupby(["player_id", "player_name"], as_index=False)
+        .agg(
+            Attempts=("shot_made_flag", "size"),
+            FG_pct=("shot_made_flag", "mean"),
+            xFG_pct=("p_make", "mean"),
+            SMOE_raw=("made_minus_expected", "mean"),
+        )
+        .sort_values("Attempts", ascending=False)
+    )
+
+    metrics["SMOE_raw"] = metrics["FG_pct"] - metrics["xFG_pct"]
+    metrics["Shot_Diet_Difficulty"] = 1 - metrics["xFG_pct"]
+
+    metrics["FG%"] = metrics["FG_pct"] * 100
+    metrics["xFG%"] = metrics["xFG_pct"] * 100
+    metrics["SMOE"] = metrics["SMOE_raw"] * 100
+    metrics["Shot Diet Difficulty"] = metrics["Shot_Diet_Difficulty"] * 100
+
+    return metrics[
+        [
+            "player_id",
+            "player_name",
+            "Attempts",
+            "FG%",
+            "xFG%",
+            "SMOE",
+            "Shot Diet Difficulty",
+        ]
+    ]
 
 
 def _build_location_table(shots: pd.DataFrame, min_attempts: int = 15) -> pd.DataFrame:
@@ -148,7 +203,8 @@ def _build_location_table(shots: pd.DataFrame, min_attempts: int = 15) -> pd.Dat
 
 
 with st.sidebar:
-    st.header("Controls")
+    st.header("NBA ShotIQ")
+    st.caption("Player shot quality and shot making explorer.")
     all_players = cached_player_names()
     default_player = "Stephen Curry" if "Stephen Curry" in all_players else all_players[0]
 
@@ -253,13 +309,75 @@ else:
 c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Attempts", f"{attempts}")
 c2.metric("FG%", _format_pct(fg_pct))
-c3.metric("xFG%", _format_pct(xfg_pct))
-c4.metric("SMOE (FG - xFG)", _format_pct(smoe_total) if smoe_total is not None else "-")
+c3.metric(
+    "xFG%",
+    _format_pct(xfg_pct),
+    help="Expected FG% from the model, based on where and what kind of shots were taken.",
+)
+c4.metric(
+    "SMOE (FG - xFG)",
+    _format_pct(smoe_total) if smoe_total is not None else "-",
+    help="Shot Making Over Expected. Positive values mean the player shot better than expected.",
+)
 c5.metric(
     "Shot Diet Difficulty",
     _format_pct(shot_diet_difficulty) if shot_diet_difficulty is not None else "-",
     help="Higher means the player took tougher average shots (lower expected make probability).",
 )
+
+st.subheader("Season Leaderboard")
+st.caption(
+    "Sort and filter all players in this season by Attempts, FG%, xFG%, SMOE, and Shot Diet Difficulty."
+)
+
+lb1, lb2, lb3, lb4 = st.columns(4)
+sort_by = lb1.selectbox(
+    "Sort by",
+    options=["Attempts", "FG%", "xFG%", "SMOE", "Shot Diet Difficulty"],
+    index=0,
+)
+sort_order = lb2.selectbox("Order", options=["Descending", "Ascending"], index=0)
+min_attempts = lb3.number_input("Min attempts", min_value=1, max_value=500, value=100, step=5)
+top_n = lb4.number_input("Rows", min_value=5, max_value=200, value=25, step=5)
+
+use_full_cache = st.checkbox(
+    "Include all players (fetch/cache missing season shots; slower on first run)",
+    value=False,
+)
+
+if not model_ready_for_selected_season:
+    st.info("Train/load a model for this season + season type to unlock full leaderboard metrics.")
+else:
+    try:
+        with st.spinner("Computing season leaderboard..."):
+            leaderboard = cached_season_player_metrics(
+                season=season,
+                season_type=season_type,
+                use_full_cache=use_full_cache,
+            )
+    except NbaApiError as exc:
+        st.error(str(exc))
+        leaderboard = pd.DataFrame()
+    except Exception as exc:
+        st.error(f"Failed to build season leaderboard: {exc}")
+        leaderboard = pd.DataFrame()
+
+    if leaderboard.empty:
+        st.info("No season leaderboard data available yet for this selection.")
+    else:
+        leaderboard = leaderboard[leaderboard["Attempts"] >= int(min_attempts)].copy()
+        ascending = sort_order == "Ascending"
+        leaderboard = leaderboard.sort_values(by=sort_by, ascending=ascending)
+        leaderboard = leaderboard.head(int(top_n)).copy()
+        leaderboard = leaderboard.round({"FG%": 1, "xFG%": 1, "SMOE": 1, "Shot Diet Difficulty": 1})
+        leaderboard = leaderboard.rename(columns={"player_name": "Player"})
+        st.dataframe(
+            leaderboard[
+                ["Player", "Attempts", "FG%", "xFG%", "SMOE", "Shot Diet Difficulty"]
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
 
 st.subheader("Chart Guide")
 g1, g2, g3 = st.columns(3)
@@ -301,6 +419,13 @@ else:
         st.dataframe(spots_table, use_container_width=True, hide_index=True)
 
 st.subheader("Model Diagnostics")
+st.caption(
+    "How to read these metrics: lower values are better. "
+    "Log Loss penalizes wrong/confident predictions; Brier score measures probability calibration accuracy."
+)
+mdesc1, mdesc2 = st.columns(2)
+mdesc1.info("**XGB Log Loss**: Overall quality of probability predictions. Lower means better predictive fit.")
+mdesc2.info("**XGB Brier**: Mean squared error of predicted probabilities. Lower means better calibration.")
 if model_metadata is None:
     st.write("Model metadata not found.")
 else:
