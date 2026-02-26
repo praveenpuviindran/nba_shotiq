@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.DS_Store
+
+# Virtual env
+.venv/
+
+# Local app/cache artifacts
+.streamlit/
+data/nba_shotiq.db
+models/*.json
+models/*.png
+
+# Keep empty dirs
+!data/.gitkeep
+!models/.gitkeep
