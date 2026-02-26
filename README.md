@@ -1,27 +1,67 @@
 # NBA ShotIQ
 
-NBA ShotIQ helps you answer a simple question:
+NBA ShotIQ is an interactive NBA shooting analysis app that compares shot **difficulty** and shot **results**.
 
-**Is a player making shots at the rate we would expect, given where those shots are taken?**
+The core question is simple:
 
-It combines NBA shot chart data with a probability model and presents results in an interactive Streamlit app.
+**Is a player making shots at the rate we would expect, based on where those shots are taken?**
 
-## What You Can Do
+## Summary
 
-- Pick a player, season, and game type (Regular Season or Playoffs)
-- See where the player shoots most often
-- See expected make chance by court location
-- See where the player is shooting better or worse than expected
-- Compare players in a season leaderboard by Attempts, FG%, xFG%, SMOE, and Shot Diet Difficulty
+- Problem: Raw FG% alone does not tell you how hard those shots were.
+- Approach: Use shot-level data + an expected-make model to estimate shot quality by location.
+- Outcome: View where a player shoots most, where shots are easiest/hardest, and where they overperform or underperform expectation.
+
+## What This Project Does
+
+- Loads player shot data for a chosen season and game type (Regular Season or Playoffs)
+- Builds location-based shot maps in two styles (Hexbin and Court Zones)
+- Computes key metrics: Attempts, FG%, xFG%, SMOE, Shot Diet Difficulty
+- Ranks players in a sortable season leaderboard
+- Highlights best and worst scoring areas for a selected player
+
+## Live App
+
+- Streamlit App: https://nbashotiq.streamlit.app/
+
+## Data
+
+- Source: `nba_api` (`ShotChartDetail`, `LeagueGameLog`, player metadata)
+- Scope: Single-season analysis per run (season options generated dynamically up to current season)
+- Storage: Local SQLite cache (`data/nba_shotiq.db`) for faster reloads
+- API Safety: Throttling + retry/backoff to reduce rate-limit failures
+
+## Methods
+
+### 1) Shot Feature Engineering
+
+- Base coordinates: `LOC_X`, `LOC_Y`
+- Derived features include distance, angle, and 3-point inference
+- Optional categorical zone features are one-hot encoded
+
+### 2) Expected Make Model
+
+- Baseline: Logistic Regression
+- Final model: XGBoost classifier
+- Metrics: Log Loss and Brier score
+- Diagnostics: Calibration curve image per season/game-type model
+
+### 3) Shot Performance Views
+
+- Shot Volume: where attempts are concentrated
+- Expected Make Chance: model-estimated make probability by location
+- Over/Under Expected: actual results minus expected results (SMOE)
 
 ## Metric Cheat Sheet
 
 - `FG%`: Actual make rate
 - `xFG%`: Expected make rate from the model
-- `SMOE`: `FG% - xFG%` (positive = above expected)
-- `Shot Diet Difficulty`: `1 - xFG%` (higher = tougher average shot profile)
+- `SMOE`: `FG% - xFG%` (positive means above expected)
+- `Shot Diet Difficulty`: `1 - xFG%` (higher means tougher average shot profile)
 
-## Run Locally
+## How To Run
+
+### Local
 
 ```bash
 python -m venv .venv
@@ -30,46 +70,65 @@ pip install -r requirements.txt
 streamlit run app/app.py
 ```
 
-Open `http://localhost:8501`.
+Then open `http://localhost:8501`.
 
-## Data and Caching
-
-- Data source: `nba_api` (`ShotChartDetail`)
-- Player lookup: `nba_api.stats.static.players`
-- Local cache: `data/nba_shotiq.db` (SQLite)
-- API protection: throttling + retry/backoff to reduce rate-limit failures
-
-Why caching matters: once shots are cached locally, reloads are much faster and require fewer API calls.
-
-## Model Training
-
-Train one model per season + game type:
+### Train a Model Manually
 
 ```bash
 python -m src.modeling.train --season 2025-26 --season-type "Regular Season"
 ```
 
-Artifacts are saved in `models/` with season/type-specific names:
+Model artifacts are saved with season/type-specific names:
 
 - `xgb_model_<season>_<season_type>.json`
 - `metadata_<season>_<season_type>.json`
 - `calibration_curve_<season>_<season_type>.png`
 
-## Tests
+## Project Structure
 
-```bash
-pytest -q
+```text
+nba_shotiq/
+  app/
+    app.py
+  src/
+    config.py
+    nba/
+      players.py
+      shots_api.py
+      seasons.py
+    data/
+      db.py
+      ingest.py
+      features.py
+    modeling/
+      train.py
+      evaluate.py
+      predict.py
+    viz/
+      court.py
+      heatmaps.py
+  data/
+    .gitkeep
+  models/
+    .gitkeep
+  tests/
+    test_features.py
+    test_db.py
+    test_seasons.py
+  requirements.txt
+  README.md
+  .gitignore
 ```
 
-## Known Constraints
+## Notes for Readers
 
-- NBA Stats endpoints can throttle or temporarily block requests, especially for first-time full-season pulls.
-- The expected-make model only uses shot-level context (location/zone and related features). It does not include defender distance, time remaining, or player tracking.
-- Results are best interpreted directionally (patterns and tendencies), not as a perfect measure of player skill in isolation.
+- First load can take longer because data may need to be downloaded and cached.
+- Expected-make estimates are based on shot-level context (mainly location and zone features), not full tracking context (defender distance, time pressure, etc.).
+- Treat outputs as decision-support signals, not a final judgment of player value.
 
 ## Troubleshooting (macOS)
 
-If `xgboost` fails to load with a `libomp.dylib` error:
+If `xgboost` fails with a `libomp.dylib` error:
 
 ```bash
 brew install libomp
