@@ -101,3 +101,11 @@ Included tests cover:
 - NBA Stats API can throttle/block requests (429/403), especially during large season ingests.
 - Model uses shot-level spatial/zone features only; it does not include defender proximity, shot clock context, or tracking data.
 - Single-season MVP only (architecture is modular to extend toward career mode later).
+
+## Troubleshooting
+
+- macOS `xgboost` load error (`libomp.dylib` missing):
+  ```bash
+  brew install libomp
+  ```
+  Then restart your shell and run Streamlit again.

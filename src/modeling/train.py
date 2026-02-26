@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
-import xgboost as xgb
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import GroupShuffleSplit
 
@@ -22,6 +21,17 @@ from src.data.ingest import ensure_season_shots_cached
 from src.modeling.evaluate import compute_binary_metrics, save_calibration_plot
 
 logger = logging.getLogger(__name__)
+
+
+def _load_xgboost_module():
+    try:
+        import xgboost as xgb  # type: ignore
+    except Exception as exc:  # pragma: no cover - environment-specific dynamic import
+        raise RuntimeError(
+            "XGBoost could not be loaded. On macOS, install OpenMP with "
+            "`brew install libomp`, then restart your shell/venv and retry."
+        ) from exc
+    return xgb
 
 
 def _split_train_test(
@@ -49,6 +59,7 @@ def train_model_for_season(
 ) -> dict:
     """Train baseline + XGBoost shot make models and save season artifacts."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+    xgb = _load_xgboost_module()
 
     logger.info("Ensuring season shot cache exists for %s (%s)", season, season_type)
     shots = ensure_season_shots_cached(

@@ -4,10 +4,20 @@ import json
 from pathlib import Path
 
 import pandas as pd
-import xgboost as xgb
 
 from src.config import METADATA_PATH, MODEL_PATH
 from src.data.features import build_model_matrix
+
+
+def _load_xgboost_module():
+    try:
+        import xgboost as xgb  # type: ignore
+    except Exception as exc:  # pragma: no cover - environment-specific dynamic import
+        raise RuntimeError(
+            "XGBoost could not be loaded. On macOS, install OpenMP with "
+            "`brew install libomp`, then restart your shell/venv and retry."
+        ) from exc
+    return xgb
 
 
 def model_artifacts_exist(
@@ -31,6 +41,8 @@ def add_p_make(
     metadata_path: str | Path = METADATA_PATH,
 ) -> pd.DataFrame:
     """Add p_make column to shots using saved XGBoost model artifacts."""
+    xgb = _load_xgboost_module()
+
     if shots.empty:
         out = shots.copy()
         out["p_make"] = []
