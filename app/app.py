@@ -32,15 +32,21 @@ from src.viz.heatmaps import (
 logging.basicConfig(level=logging.INFO)
 
 st.set_page_config(page_title="NBA ShotIQ", layout="wide")
-st.title("NBA ShotIQ: Shot Quality vs Shot Making")
-st.caption(
-    "Explore where players shoot, how difficult those shots are, and whether they outperform expected outcomes."
-)
+st.title("NBA ShotIQ")
+st.caption("A simple way to understand where NBA players shoot, how hard those shots are, and how they perform.")
 st.info(
-    "How to use this page: Pick a player, season, and season type in the sidebar, then click "
-    "**Run / Load**. Use the tabs to compare shot volume (Frequency), expected accuracy (Quality), "
-    "and over/under-performance (SMOE)."
+    "Start in the left sidebar: choose a player, season, and game type, then click **Load Dashboard**. "
+    "Use the charts and tables below to compare shot volume, expected make chance, and real shooting results."
 )
+with st.expander("New to basketball stats? Quick glossary"):
+    st.markdown(
+        """
+        - **FG% (Field Goal %)**: Share of shots that went in.
+        - **xFG% (Expected FG%)**: Model estimate of how often those shots should go in.
+        - **SMOE (Shot Making Over Expected)**: `FG% - xFG%`.
+        - **Shot Diet Difficulty**: `1 - xFG%`. Higher means tougher average shots.
+        """
+    )
 
 initialize_database()
 
@@ -230,7 +236,7 @@ def _render_shot_map_views(
 
 with st.sidebar:
     st.header("NBA ShotIQ")
-    st.caption("Player shot quality and shot making explorer.")
+    st.caption("Choose your inputs")
     all_players = cached_player_names()
     default_player = "Stephen Curry" if "Stephen Curry" in all_players else all_players[0]
 
@@ -240,9 +246,9 @@ with st.sidebar:
     default_season = get_default_season()
     season = st.selectbox("Season", options=seasons, index=seasons.index(default_season))
 
-    season_type = st.selectbox("Season Type", options=["Regular Season", "Playoffs"], index=0)
+    season_type = st.selectbox("Game Type", options=["Regular Season", "Playoffs"], index=0)
 
-    run_load = st.button("Run / Load", type="primary")
+    run_load = st.button("Load Dashboard", type="primary")
 
 if run_load:
     st.session_state["selected_player_name"] = player_name
@@ -250,7 +256,7 @@ if run_load:
     st.session_state["selected_season_type"] = season_type
 
 if "selected_player_name" not in st.session_state:
-    st.info("Choose options in the sidebar and click **Run / Load**.")
+    st.info("Choose options in the sidebar and click **Load Dashboard**.")
     st.stop()
 
 player_name = st.session_state["selected_player_name"]
@@ -282,7 +288,7 @@ if not model_ready_for_selected_season:
                 st.stop()
 
         st.cache_data.clear()
-        st.success("Model training complete. Click Run / Load to refresh predictions.")
+        st.success("Model training complete. Click Load Dashboard to refresh predictions.")
         st.stop()
 
 try:
@@ -333,17 +339,17 @@ else:
     shot_diet_difficulty = None
 
 c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("Attempts", f"{attempts}")
-c2.metric("FG%", _format_pct(fg_pct))
+c1.metric("Shot Attempts", f"{attempts}", help="Total shots in the selected season and game type.")
+c2.metric("Field Goal % (FG%)", _format_pct(fg_pct), help="How often shots were made.")
 c3.metric(
-    "xFG%",
+    "Expected FG% (xFG%)",
     _format_pct(xfg_pct),
-    help="Expected FG% from the model, based on where and what kind of shots were taken.",
+    help="Model estimate of make rate based on shot location and shot profile.",
 )
 c4.metric(
-    "SMOE (FG - xFG)",
+    "Over/Under Expected (SMOE)",
     _format_pct(smoe_total) if smoe_total is not None else "-",
-    help="Shot Making Over Expected. Positive values mean the player shot better than expected.",
+    help="FG% minus xFG%. Positive means better than expected; negative means below expected.",
 )
 c5.metric(
     "Shot Diet Difficulty",
@@ -353,7 +359,7 @@ c5.metric(
 
 st.subheader("Season Leaderboard")
 st.caption(
-    "Sort and filter all players in this season by Attempts, FG%, xFG%, SMOE, and Shot Diet Difficulty."
+    "Compare players for this season and game type. Sort by any key metric and apply a minimum-attempts filter."
 )
 
 lb1, lb2, lb3, lb4 = st.columns(4)
@@ -367,7 +373,7 @@ min_attempts = lb3.number_input("Min attempts", min_value=1, max_value=500, valu
 top_n = lb4.number_input("Rows", min_value=5, max_value=200, value=25, step=5)
 
 use_full_cache = st.checkbox(
-    "Include all players (fetch/cache missing season shots; slower on first run)",
+    "Include all players (downloads missing players the first time, which can take longer)",
     value=False,
 )
 
@@ -407,16 +413,18 @@ else:
 
 st.subheader("Chart Guide")
 g1, g2, g3 = st.columns(3)
-g1.info("**Frequency**: Where the player takes the most shots.")
-g2.info("**Quality**: Expected make probability by location (model-based).")
-g3.info("**SMOE**: Actual minus expected shooting by location.")
+g1.info("**Shot Volume**: Where this player shoots most often.")
+g2.info("**Expected Make Chance**: How makeable shots are by location.")
+g3.info("**Over/Under Expected**: Where results are above or below expectation.")
 view_style = st.radio(
     "Shot Map Style",
     options=["Hexbin", "Court Zones", "Both"],
     horizontal=True,
 )
 
-tab_freq, tab_quality, tab_smoe = st.tabs(["Frequency", "Quality", "SMOE"])
+tab_freq, tab_quality, tab_smoe = st.tabs(
+    ["Shot Volume", "Expected Make Chance", "Over/Under Expected"]
+)
 
 with tab_freq:
     _render_shot_map_views(
@@ -428,7 +436,7 @@ with tab_freq:
 
 with tab_quality:
     if not has_predictions:
-        st.info("Train/load a model for this season to view quality heatmap.")
+        st.info("Train/load a model for this season to view expected make chance maps.")
     else:
         _render_shot_map_views(
             shots=shots,
@@ -439,7 +447,7 @@ with tab_quality:
 
 with tab_smoe:
     if not has_predictions:
-        st.info("Train/load a model for this season to view SMOE heatmap.")
+        st.info("Train/load a model for this season to view over/under expected maps.")
     else:
         _render_shot_map_views(
             shots=shots,
@@ -450,10 +458,10 @@ with tab_smoe:
 
 st.subheader("Best and Worst Spots")
 st.caption(
-    "Location buckets with at least 15 attempts. SMOE compares actual makes to expected makes."
+    "These are grouped court areas with at least 15 shots. Positive SMOE means better-than-expected results."
 )
 if not has_predictions:
-    st.info("Train/load a model for this season to generate best/worst spot tables.")
+    st.info("Train/load a model for this season to generate best/worst area tables.")
 else:
     spots_table = _build_location_table(shots, min_attempts=15)
     if spots_table.empty:
@@ -463,12 +471,11 @@ else:
 
 st.subheader("Model Diagnostics")
 st.caption(
-    "How to read these metrics: lower values are better. "
-    "Log Loss penalizes wrong/confident predictions; Brier score measures probability calibration accuracy."
+    "These checks tell you how reliable the expected-make model is. Lower numbers are better."
 )
 mdesc1, mdesc2 = st.columns(2)
-mdesc1.info("**XGB Log Loss**: Overall quality of probability predictions. Lower means better predictive fit.")
-mdesc2.info("**XGB Brier**: Mean squared error of predicted probabilities. Lower means better calibration.")
+mdesc1.info("**XGB Log Loss**: Penalizes very wrong confident predictions. Lower means better probability quality.")
+mdesc2.info("**XGB Brier**: Average squared error of predicted probabilities. Lower means better calibration.")
 if model_metadata is None:
     st.write("Model metadata not found.")
 else:

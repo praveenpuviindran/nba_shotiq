@@ -1,55 +1,27 @@
-# nba-shotiq
+# NBA ShotIQ
 
-NBA ShotIQ is an MVP portfolio project for comparing **shot quality** (expected make probability) versus **shot making** (actual FG outcomes) for NBA players in a selected season.
+NBA ShotIQ helps you answer a simple question:
 
-## What It Does
+**Is a player making shots at the rate we would expect, given where those shots are taken?**
 
-- Fetches shot-level data from `nba_api` (`ShotChartDetail`) for a selected player/season.
-- Supports both `Regular Season` and `Playoffs` as separate analysis modes.
-- Caches shots locally in SQLite at `data/nba_shotiq.db` so repeated app runs do not repeatedly hit the API.
-- Trains an expected field-goal model for one season at a time (baseline Logistic Regression + final XGBoost).
-- Visualizes:
-  - Shot Frequency Heatmap (hexbin density)
-  - Shot Quality Heatmap (mean predicted `p_make` by location)
-  - Shot Making Over Expected (SMOE) Heatmap (mean `made - p_make` by location)
-- Displays key cards: Attempts, FG%, xFG%, SMOE.
+It combines NBA shot chart data with a probability model and presents results in an interactive Streamlit app.
 
-## Repo Structure
+## What You Can Do
 
-```text
-nba_shotiq/
-  app/
-    app.py
-  src/
-    config.py
-    nba/
-      players.py
-      shots_api.py
-      seasons.py
-    data/
-      db.py
-      ingest.py
-      features.py
-    modeling/
-      train.py
-      evaluate.py
-      predict.py
-    viz/
-      court.py
-      heatmaps.py
-  data/
-    .gitkeep
-  models/
-    .gitkeep
-  tests/
-    test_features.py
-    test_db.py
-  requirements.txt
-  README.md
-  .gitignore
-```
+- Pick a player, season, and game type (Regular Season or Playoffs)
+- See where the player shoots most often
+- See expected make chance by court location
+- See where the player is shooting better or worse than expected
+- Compare players in a season leaderboard by Attempts, FG%, xFG%, SMOE, and Shot Diet Difficulty
 
-## Local Setup
+## Metric Cheat Sheet
+
+- `FG%`: Actual make rate
+- `xFG%`: Expected make rate from the model
+- `SMOE`: `FG% - xFG%` (positive = above expected)
+- `Shot Diet Difficulty`: `1 - xFG%` (higher = tougher average shot profile)
+
+## Run Locally
 
 ```bash
 python -m venv .venv
@@ -58,34 +30,30 @@ pip install -r requirements.txt
 streamlit run app/app.py
 ```
 
-## Data Fetching and Caching
+Open `http://localhost:8501`.
 
-- Player lookup uses `nba_api.stats.static.players`.
-- Shot data is pulled from `nba_api.stats.endpoints.ShotChartDetail`.
-- SQLite cache is created at runtime in `data/nba_shotiq.db` (gitignored).
-- API calls include throttling, retries, and exponential backoff to reduce 429/403 failures.
+## Data and Caching
 
-## Train the Model
+- Data source: `nba_api` (`ShotChartDetail`)
+- Player lookup: `nba_api.stats.static.players`
+- Local cache: `data/nba_shotiq.db` (SQLite)
+- API protection: throttling + retry/backoff to reduce rate-limit failures
 
-Train for one season + season type:
+Why caching matters: once shots are cached locally, reloads are much faster and require fewer API calls.
+
+## Model Training
+
+Train one model per season + game type:
 
 ```bash
 python -m src.modeling.train --season 2025-26 --season-type "Regular Season"
 ```
 
-Artifacts saved to `models/`:
+Artifacts are saved in `models/` with season/type-specific names:
+
 - `xgb_model_<season>_<season_type>.json`
-- `metadata_<season>_<season_type>.json` (season, features, metrics, timestamp)
+- `metadata_<season>_<season_type>.json`
 - `calibration_curve_<season>_<season_type>.png`
-
-## Coordinate Mapping
-
-`ShotChartDetail` returns `LOC_X`/`LOC_Y` already in NBA half-court coordinates (rim near `(0,0)`, positive Y toward midcourt). The app uses this direct mapping:
-
-- `plot_x = LOC_X`
-- `plot_y = LOC_Y`
-
-See `src/viz/court.py` (`transform_shot_coords`) for the mapping function.
 
 ## Tests
 
@@ -93,20 +61,18 @@ See `src/viz/court.py` (`transform_shot_coords`) for the mapping function.
 pytest -q
 ```
 
-Included tests cover:
-- Feature engineering math (`distance`, `angle`, `is_3` inference)
-- DB schema initialization and insert/read roundtrip behavior
+## Known Constraints
 
-## Limitations
+- NBA Stats endpoints can throttle or temporarily block requests, especially for first-time full-season pulls.
+- The expected-make model only uses shot-level context (location/zone and related features). It does not include defender distance, time remaining, or player tracking.
+- Results are best interpreted directionally (patterns and tendencies), not as a perfect measure of player skill in isolation.
 
-- NBA Stats API can throttle/block requests (429/403), especially during large season ingests.
-- Model uses shot-level spatial/zone features only; it does not include defender proximity, shot clock context, or tracking data.
-- Single-season context at a time (architecture is modular to extend toward career mode later).
+## Troubleshooting (macOS)
 
-## Troubleshooting
+If `xgboost` fails to load with a `libomp.dylib` error:
 
-- macOS `xgboost` load error (`libomp.dylib` missing):
-  ```bash
-  brew install libomp
-  ```
-  Then restart your shell and run Streamlit again.
+```bash
+brew install libomp
+```
+
+Then restart your shell/venv and run Streamlit again.
