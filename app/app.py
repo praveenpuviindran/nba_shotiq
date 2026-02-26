@@ -22,8 +22,11 @@ from src.nba.seasons import get_default_season, get_season_options
 from src.nba.shots_api import NbaApiError
 from src.viz.heatmaps import (
     plot_frequency_heatmap,
+    plot_frequency_partitioned_heatmap,
     plot_quality_heatmap,
+    plot_quality_partitioned_heatmap,
     plot_smoe_heatmap,
+    plot_smoe_partitioned_heatmap,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -200,6 +203,29 @@ def _build_location_table(shots: pd.DataFrame, min_attempts: int = 15) -> pd.Dat
     )
 
     return table.round({"FG%": 1, "xFG%": 1, "SMOE": 1})
+
+
+def _render_shot_map_views(
+    shots: pd.DataFrame,
+    view_style: str,
+    hexbin_fn,
+    partitioned_fn,
+) -> None:
+    if view_style == "Hexbin":
+        st.pyplot(hexbin_fn(shots), clear_figure=True, use_container_width=True)
+        return
+
+    if view_style == "Partitioned Zones":
+        st.pyplot(partitioned_fn(shots), clear_figure=True, use_container_width=True)
+        return
+
+    left, right = st.columns(2)
+    with left:
+        st.caption("Hexbin")
+        st.pyplot(hexbin_fn(shots), clear_figure=True, use_container_width=True)
+    with right:
+        st.caption("Partitioned Zones")
+        st.pyplot(partitioned_fn(shots), clear_figure=True, use_container_width=True)
 
 
 with st.sidebar:
@@ -384,26 +410,43 @@ g1, g2, g3 = st.columns(3)
 g1.info("**Frequency**: Where the player takes the most shots.")
 g2.info("**Quality**: Expected make probability by location (model-based).")
 g3.info("**SMOE**: Actual minus expected shooting by location.")
+view_style = st.radio(
+    "Shot Map Style",
+    options=["Hexbin", "Partitioned Zones", "Both"],
+    horizontal=True,
+)
 
 tab_freq, tab_quality, tab_smoe = st.tabs(["Frequency", "Quality", "SMOE"])
 
 with tab_freq:
-    fig = plot_frequency_heatmap(shots)
-    st.pyplot(fig, clear_figure=True, use_container_width=True)
+    _render_shot_map_views(
+        shots=shots,
+        view_style=view_style,
+        hexbin_fn=plot_frequency_heatmap,
+        partitioned_fn=plot_frequency_partitioned_heatmap,
+    )
 
 with tab_quality:
     if not has_predictions:
         st.info("Train/load a model for this season to view quality heatmap.")
     else:
-        fig = plot_quality_heatmap(shots)
-        st.pyplot(fig, clear_figure=True, use_container_width=True)
+        _render_shot_map_views(
+            shots=shots,
+            view_style=view_style,
+            hexbin_fn=plot_quality_heatmap,
+            partitioned_fn=plot_quality_partitioned_heatmap,
+        )
 
 with tab_smoe:
     if not has_predictions:
         st.info("Train/load a model for this season to view SMOE heatmap.")
     else:
-        fig = plot_smoe_heatmap(shots)
-        st.pyplot(fig, clear_figure=True, use_container_width=True)
+        _render_shot_map_views(
+            shots=shots,
+            view_style=view_style,
+            hexbin_fn=plot_smoe_heatmap,
+            partitioned_fn=plot_smoe_partitioned_heatmap,
+        )
 
 st.subheader("Best and Worst Spots")
 st.caption(
