@@ -5,16 +5,13 @@ import json
 import logging
 from datetime import datetime, timezone
 
-import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import GroupShuffleSplit
 
 from src.config import (
-    CALIBRATION_PLOT_PATH,
-    METADATA_PATH,
-    MODEL_PATH,
     RANDOM_SEED,
+    get_model_artifact_paths,
 )
 from src.data.features import build_model_matrix
 from src.data.ingest import ensure_season_shots_cached
@@ -105,13 +102,18 @@ def train_model_for_season(
     xgb_probs = xgb_model.predict_proba(X_test)[:, 1]
     xgb_metrics = compute_binary_metrics(y_test.to_numpy(), xgb_probs)
 
-    MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
-    xgb_model.get_booster().save_model(str(MODEL_PATH))
+    artifacts = get_model_artifact_paths(season=season, season_type=season_type)
+    model_path = artifacts["model_path"]
+    metadata_path = artifacts["metadata_path"]
+    calibration_plot_path = artifacts["calibration_plot_path"]
+
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    xgb_model.get_booster().save_model(str(model_path))
 
     save_calibration_plot(
         y_true=y_test.to_numpy(),
         y_prob=xgb_probs,
-        output_path=CALIBRATION_PLOT_PATH,
+        output_path=calibration_plot_path,
     )
 
     metadata = {
@@ -127,13 +129,13 @@ def train_model_for_season(
             "xgboost": xgb_metrics,
         },
         "artifacts": {
-            "model_path": str(MODEL_PATH),
-            "metadata_path": str(METADATA_PATH),
-            "calibration_plot_path": str(CALIBRATION_PLOT_PATH),
+            "model_path": str(model_path),
+            "metadata_path": str(metadata_path),
+            "calibration_plot_path": str(calibration_plot_path),
         },
     }
 
-    with open(METADATA_PATH, "w", encoding="utf-8") as f:
+    with open(metadata_path, "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2)
 
     logger.info(

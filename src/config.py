@@ -20,3 +20,23 @@ NBA_API_MAX_RETRIES = int(os.getenv("NBA_API_MAX_RETRIES", "5"))
 NBA_API_BACKOFF_BASE_SECONDS = float(os.getenv("NBA_API_BACKOFF_BASE_SECONDS", "1.00"))
 
 RANDOM_SEED = 42
+
+
+def _season_type_slug(season_type: str) -> str:
+    return season_type.lower().replace(" ", "_")
+
+
+def get_model_artifact_paths(season: str, season_type: str) -> dict[str, Path]:
+    """
+    Return artifact paths scoped by season and season type.
+
+    Example model path:
+    models/xgb_model_2025-26_regular_season.json
+    """
+    safe_type = _season_type_slug(season_type)
+    suffix = f"{season}_{safe_type}"
+    return {
+        "model_path": MODELS_DIR / f"xgb_model_{suffix}.json",
+        "metadata_path": MODELS_DIR / f"metadata_{suffix}.json",
+        "calibration_plot_path": MODELS_DIR / f"calibration_curve_{suffix}.png",
+    }

@@ -86,7 +86,7 @@ def plot_quality_heatmap(shots: pd.DataFrame) -> plt.Figure:
         vmax=0.8,
     )
     cbar = fig.colorbar(hb, ax=ax, shrink=0.8)
-    cbar.set_label("Mean predicted make probability")
+    cbar.set_label("Expected Make Prob")
     ax.set_title(title)
     fig.tight_layout()
     return fig
@@ -95,7 +95,7 @@ def plot_quality_heatmap(shots: pd.DataFrame) -> plt.Figure:
 def plot_smoe_heatmap(shots: pd.DataFrame) -> plt.Figure:
     title = "Shot Making Over Expected by Location (Mean made - p_make)"
     frame = _prepare_plot_frame(shots)
-    if frame.empty or "smoe" not in frame.columns:
+    if frame.empty or "made_minus_expected" not in frame.columns:
         return _empty_figure(title)
 
     fig, ax = plt.subplots(figsize=(7, 6))
@@ -105,17 +105,17 @@ def plot_smoe_heatmap(shots: pd.DataFrame) -> plt.Figure:
     hb = ax.hexbin(
         frame["plot_x"],
         frame["plot_y"],
-        C=frame["smoe"],
+        C=frame["made_minus_expected"],
         reduce_C_function=np.mean,
         gridsize=34,
         extent=(COURT_X_MIN, COURT_X_MAX, COURT_Y_MIN, COURT_Y_MAX),
         mincnt=1,
-        cmap="RdBu_r",
+        cmap="RdBu",
         linewidths=0.2,
         norm=norm,
     )
     cbar = fig.colorbar(hb, ax=ax, shrink=0.8)
-    cbar.set_label("Mean (made - expected)")
+    cbar.set_label("Made - Expected")
     ax.set_title(title)
     fig.tight_layout()
     return fig

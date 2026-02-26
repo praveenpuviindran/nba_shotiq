@@ -5,6 +5,7 @@ NBA ShotIQ is an MVP portfolio project for comparing **shot quality** (expected 
 ## What It Does
 
 - Fetches shot-level data from `nba_api` (`ShotChartDetail`) for a selected player/season.
+- Supports both `Regular Season` and `Playoffs` as separate analysis modes.
 - Caches shots locally in SQLite at `data/nba_shotiq.db` so repeated app runs do not repeatedly hit the API.
 - Trains an expected field-goal model for one season at a time (baseline Logistic Regression + final XGBoost).
 - Visualizes:
@@ -66,16 +67,16 @@ streamlit run app/app.py
 
 ## Train the Model
 
-Train for one season (MVP expects `Regular Season`):
+Train for one season + season type:
 
 ```bash
 python -m src.modeling.train --season 2025-26 --season-type "Regular Season"
 ```
 
 Artifacts saved to `models/`:
-- `xgb_model.json`
-- `metadata.json` (season, features, metrics, timestamp)
-- `calibration_curve.png`
+- `xgb_model_<season>_<season_type>.json`
+- `metadata_<season>_<season_type>.json` (season, features, metrics, timestamp)
+- `calibration_curve_<season>_<season_type>.png`
 
 ## Coordinate Mapping
 
@@ -100,7 +101,7 @@ Included tests cover:
 
 - NBA Stats API can throttle/block requests (429/403), especially during large season ingests.
 - Model uses shot-level spatial/zone features only; it does not include defender proximity, shot clock context, or tracking data.
-- Single-season MVP only (architecture is modular to extend toward career mode later).
+- Single-season context at a time (architecture is modular to extend toward career mode later).
 
 ## Troubleshooting
 

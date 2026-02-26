@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.config import METADATA_PATH, MODEL_PATH
+from src.config import get_model_artifact_paths
 from src.data.features import build_model_matrix
 
 
@@ -21,15 +21,30 @@ def _load_xgboost_module():
 
 
 def model_artifacts_exist(
-    model_path: str | Path = MODEL_PATH,
-    metadata_path: str | Path = METADATA_PATH,
+    season: str,
+    season_type: str = "Regular Season",
+    model_path: str | Path | None = None,
+    metadata_path: str | Path | None = None,
 ) -> bool:
     """Check if model and metadata artifacts exist on disk."""
+    if model_path is None or metadata_path is None:
+        artifacts = get_model_artifact_paths(season=season, season_type=season_type)
+        model_path = artifacts["model_path"]
+        metadata_path = artifacts["metadata_path"]
     return Path(model_path).exists() and Path(metadata_path).exists()
 
 
-def load_metadata(metadata_path: str | Path = METADATA_PATH) -> dict:
+def load_metadata(
+    season: str,
+    season_type: str = "Regular Season",
+    metadata_path: str | Path | None = None,
+) -> dict:
     """Load model metadata JSON."""
+    if metadata_path is None:
+        metadata_path = get_model_artifact_paths(
+            season=season,
+            season_type=season_type,
+        )["metadata_path"]
     with open(metadata_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -37,27 +52,44 @@ def load_metadata(metadata_path: str | Path = METADATA_PATH) -> dict:
 def add_p_make(
     shots: pd.DataFrame,
     season: str,
-    model_path: str | Path = MODEL_PATH,
-    metadata_path: str | Path = METADATA_PATH,
+    season_type: str = "Regular Season",
+    model_path: str | Path | None = None,
+    metadata_path: str | Path | None = None,
 ) -> pd.DataFrame:
     """Add p_make column to shots using saved XGBoost model artifacts."""
     xgb = _load_xgboost_module()
+    if model_path is None or metadata_path is None:
+        artifacts = get_model_artifact_paths(season=season, season_type=season_type)
+        model_path = artifacts["model_path"]
+        metadata_path = artifacts["metadata_path"]
 
     if shots.empty:
         out = shots.copy()
         out["p_make"] = []
         return out
 
-    if not model_artifacts_exist(model_path=model_path, metadata_path=metadata_path):
+    if not model_artifacts_exist(
+        season=season,
+        season_type=season_type,
+        model_path=model_path,
+        metadata_path=metadata_path,
+    ):
         raise FileNotFoundError(
             "Model artifacts are missing. Train a model first at src/modeling/train.py."
         )
 
-    metadata = load_metadata(metadata_path)
+    metadata = load_metadata(
+        season=season,
+        season_type=season_type,
+        metadata_path=metadata_path,
+    )
     trained_season = metadata.get("season")
-    if trained_season != season:
+    trained_season_type = metadata.get("season_type")
+    if trained_season != season or trained_season_type != season_type:
         raise ValueError(
-            f"Model season mismatch: selected season={season}, trained season={trained_season}."
+            "Model context mismatch: "
+            f"selected=({season}, {season_type}), "
+            f"trained=({trained_season}, {trained_season_type})."
         )
 
     feature_columns = metadata["features"]
