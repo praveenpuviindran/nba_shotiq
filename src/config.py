@@ -21,6 +21,16 @@ NBA_API_BACKOFF_BASE_SECONDS = float(os.getenv("NBA_API_BACKOFF_BASE_SECONDS", "
 
 RANDOM_SEED = 42
 
+TABLEAU_PUBLIC_VIEW_URL = (
+    "https://public.tableau.com/views/NBAShotIQDashboard/Dashboard1"
+    "?:language=en-US&publish=yes&:sid=&:redirect=auth&:display_count=n&:origin=viz_share_link"
+)
+TABLEAU_EMBED_URL = (
+    "https://public.tableau.com/views/NBAShotIQDashboard/Dashboard1"
+    "?:showVizHome=no&:tabs=no&:toolbar=yes&:language=en-US"
+)
+GITHUB_REPO_URL = "https://github.com/praveenpuviindran/nba_shotiq"
+
 
 def _season_type_slug(season_type: str) -> str:
     return season_type.lower().replace(" ", "_")

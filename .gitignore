@@ -11,9 +11,11 @@ __pycache__/
 # Local app/cache artifacts
 .streamlit/
 data/nba_shotiq.db
+data/tableau_exports/*.csv
 models/*.json
 models/*.png
 
 # Keep empty dirs
 !data/.gitkeep
+!data/tableau_exports/.gitkeep
 !models/.gitkeep
