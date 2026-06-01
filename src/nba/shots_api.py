@@ -21,6 +21,7 @@ class NbaApiError(RuntimeError):
     """Raised when NBA API requests fail after retries."""
 
 
+# Column rename map: NBA API returns UPPER_SNAKE names; we use lower_snake internally.
 RAW_TO_STD_COLS = {
     "GAME_ID": "game_id",
     "GAME_EVENT_ID": "game_event_id",
@@ -40,6 +41,7 @@ RAW_TO_STD_COLS = {
     "SHOT_ZONE_RANGE": "shot_zone_range",
 }
 
+# Canonical output schema — every returned DataFrame has exactly these columns in this order.
 BASE_SHOT_COLUMNS = [
     "season",
     "season_type",
@@ -63,19 +65,26 @@ BASE_SHOT_COLUMNS = [
 
 
 def _throttle() -> None:
+    """Sleep between API calls to respect the NBA stats API rate limit."""
     time.sleep(max(0.0, NBA_API_SLEEP_SECONDS))
 
 
 def _run_with_retry(func: Callable[[], pd.DataFrame], op_name: str) -> pd.DataFrame:
+    """Call func() up to NBA_API_MAX_RETRIES times with exponential backoff + jitter.
+
+    Raises NbaApiError if all attempts fail (e.g. HTTP 429 throttle or 403 block).
+    """
     last_error: Exception | None = None
     for attempt in range(1, NBA_API_MAX_RETRIES + 1):
         try:
+            # Apply base throttle before every attempt to avoid rate-limit spikes.
             _throttle()
             return func()
         except Exception as exc:  # pragma: no cover - network/runtime behavior
             last_error = exc
             if attempt == NBA_API_MAX_RETRIES:
                 break
+            # Exponential backoff: 2^(attempt-1) * base, plus random jitter to desync retries.
             sleep_for = NBA_API_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
             sleep_for += random.uniform(0.0, 0.35)
             logger.warning(
@@ -103,25 +112,36 @@ def _standardize_shot_frame(
     player_id: int,
     player_name: str,
 ) -> pd.DataFrame:
+    """Rename columns, inject metadata fields, and enforce the canonical shot schema.
+
+    Returns an empty DataFrame with the correct columns if the input is empty.
+    """
     if frame.empty:
         return pd.DataFrame(columns=BASE_SHOT_COLUMNS)
 
+    # Rename raw API column names to the project's internal lowercase schema.
     standardized = frame.rename(columns=RAW_TO_STD_COLS).copy()
+
+    # Inject season context columns that are not returned by the ShotChartDetail endpoint.
     standardized["season"] = season
     standardized["season_type"] = season_type
     standardized["player_id"] = player_id
     standardized["player_name"] = player_name
 
+    # Fill any columns present in the schema but absent from the raw frame with NA.
     for col in BASE_SHOT_COLUMNS:
         if col not in standardized.columns:
             standardized[col] = pd.NA
 
+    # Enforce column order to match BASE_SHOT_COLUMNS exactly.
     standardized = standardized[BASE_SHOT_COLUMNS]
 
+    # Coerce all spatial and numeric fields to float/int; malformed strings become NaN.
     numeric_cols = ["loc_x", "loc_y", "shot_made_flag", "shot_distance", "game_event_id", "team_id", "player_id"]
     for col in numeric_cols:
         standardized[col] = pd.to_numeric(standardized[col], errors="coerce")
 
+    # shot_made_flag must be 0 or 1 — replace NaN with 0 (no-make assumption).
     standardized["shot_made_flag"] = standardized["shot_made_flag"].fillna(0).astype(int)
     return standardized
 
@@ -135,6 +155,7 @@ def fetch_player_shots(
     """Fetch shot-level data from ShotChartDetail for one player-season."""
 
     def _request() -> pd.DataFrame:
+        # Request all field goal attempts (FGA) for this player using ShotChartDetail.
         endpoint = ShotChartDetail(
             team_id=0,
             player_id=int(player_id),
@@ -146,12 +167,14 @@ def fetch_player_shots(
         frames = endpoint.get_data_frames()
         if not frames:
             return pd.DataFrame()
+        # The first data frame contains the shot chart rows; remaining frames are secondary.
         return frames[0]
 
     raw = _run_with_retry(
         _request,
         op_name=f"ShotChartDetail(player_id={player_id}, season={season}, season_type={season_type})",
     )
+    # Normalise raw API output into the canonical schema before returning.
     return _standardize_shot_frame(
         raw,
         season=season,
@@ -168,6 +191,7 @@ def fetch_players_with_games(
     """Fetch unique players with at least one game in the season."""
 
     def _request() -> pd.DataFrame:
+        # LeagueGameLog returns one row per player-game; we de-duplicate to get unique players.
         endpoint = LeagueGameLog(
             season=season,
             # nba_api arg maps to API request param `SeasonTypeAllStar`.
@@ -181,10 +205,12 @@ def fetch_players_with_games(
         if frame.empty:
             return pd.DataFrame(columns=["player_id", "player_name"])
 
+        # Select only the ID and name columns (other columns are per-game stats we don't need here).
         cols = [c for c in ["PLAYER_ID", "PLAYER_NAME"] if c in frame.columns]
         players = frame[cols].drop_duplicates().rename(
             columns={"PLAYER_ID": "player_id", "PLAYER_NAME": "player_name"}
         )
+        # Coerce player_id to int; rows with non-numeric IDs are dropped.
         players["player_id"] = pd.to_numeric(players["player_id"], errors="coerce")
         players = players.dropna(subset=["player_id"])
         players["player_id"] = players["player_id"].astype(int)
